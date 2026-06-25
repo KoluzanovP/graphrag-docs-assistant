@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GraphRAG Docs Assistant</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #1a1d27;
+      --accent: #5b8def;
+      --text: #e6e8ee;
+      --muted: #8a90a2;
+      --user: #244065;
+      --bot: #20242f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 14px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid #262a36;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    header .pill {
+      font-size: 11px;
+      color: var(--muted);
+      border: 1px solid #2c3142;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    header button {
+      margin-left: auto;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid #2c3142;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .msg { max-width: 760px; padding: 12px 14px; border-radius: 10px; line-height: 1.5; white-space: pre-wrap; }
+    .msg.user { align-self: flex-end; background: var(--user); }
+    .msg.bot { align-self: flex-start; background: var(--bot); border: 1px solid #262a36; }
+    .meta { font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .meta code { color: var(--accent); }
+    form {
+      display: flex;
+      gap: 10px;
+      padding: 16px 20px;
+      background: var(--panel);
+      border-top: 1px solid #262a36;
+    }
+    input[type="text"] {
+      flex: 1;
+      background: #11141d;
+      border: 1px solid #2c3142;
+      color: var(--text);
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    button.send {
+      background: var(--accent);
+      border: none;
+      color: white;
+      padding: 0 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    button.send:disabled { opacity: 0.5; cursor: default; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GraphRAG Docs Assistant</h1>
+    <span class="pill" id="model-pill">connecting…</span>
+    <button id="ingest-btn" title="Ingest the docs/ directory">Ingest docs</button>
+  </header>
+
+  <div id="chat"></div>
+
+  <form id="chat-form">
+    <input type="text" id="question" placeholder="Ask a question about the docs…" autocomplete="off" />
+    <button type="submit" class="send" id="send-btn">Send</button>
+  </form>
+
+  <script>
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("chat-form");
+    const input = document.getElementById("question");
+    const sendBtn = document.getElementById("send-btn");
+    const ingestBtn = document.getElementById("ingest-btn");
+    const modelPill = document.getElementById("model-pill");
+    let sessionId = null;
+
+    function addMessage(text, role, meta) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      div.textContent = text;
+      if (meta) {
+        const m = document.createElement("div");
+        m.className = "meta";
+        m.innerHTML = meta;
+        div.appendChild(m);
+      }
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+      return div;
+    }
+
+    async function refreshHealth() {
+      try {
+        const res = await fetch("/health");
+        const data = await res.json();
+        modelPill.textContent = `${data.provider} · ${data.model}`;
+      } catch {
+        modelPill.textContent = "offline";
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const question = input.value.trim();
+      if (!question) return;
+      addMessage(question, "user");
+      input.value = "";
+      sendBtn.disabled = true;
+      const pending = addMessage("Thinking…", "bot");
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, session_id: sessionId }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        sessionId = data.session_id;
+        const cites = (data.citations || []).map((c) => `<code>${c}</code>`).join(" ");
+        const facts = (data.graph_facts || []).slice(0, 5).join("; ");
+        let meta = cites ? `Citations: ${cites}` : "";
+        if (facts) meta += `<br/>Graph: ${facts}`;
+        pending.textContent = data.answer;
+        if (meta) {
+          const m = document.createElement("div");
+          m.className = "meta";
+          m.innerHTML = meta;
+          pending.appendChild(m);
+        }
+      } catch (err) {
+        pending.textContent = `Error: ${err.message}`;
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    });
+
+    ingestBtn.addEventListener("click", async () => {
+      ingestBtn.disabled = true;
+      ingestBtn.textContent = "Ingesting…";
+      try {
+        const res = await fetch("/ingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        addMessage(
+          `Ingestion complete: ${data.documents} document(s), ${data.chunks} chunks, ` +
+          `${data.nodes} nodes, ${data.relationships} relationships.`,
+          "bot"
+        );
+      } catch (err) {
+        addMessage(`Ingestion failed: ${err.message}`, "bot");
+      } finally {
+        ingestBtn.disabled = false;
+        ingestBtn.textContent = "Ingest docs";
+      }
+    });
+
+    refreshHealth();
+  </script>
+</body>
+</html>

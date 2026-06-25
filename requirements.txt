@@ -1,0 +1,27 @@
+# Core orchestration
+langchain==0.3.13
+langchain-community==0.3.13
+langchain-chroma==0.1.4
+langchain-anthropic==0.3.0
+
+# Vector store + embeddings
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# Knowledge graph
+neo4j==5.27.0
+
+# Relational store
+psycopg2-binary==2.9.10
+
+# API + serving
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+python-dotenv==1.0.1
+
+# Document loading
+pypdf==5.1.0
+
+# Optional local LLM provider (Ollama). Anthropic is the default provider.
+ollama==0.4.4

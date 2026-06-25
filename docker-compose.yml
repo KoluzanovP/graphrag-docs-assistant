@@ -1,0 +1,75 @@
+services:
+  app:
+    build: .
+    container_name: graphrag-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override hostnames so the app reaches sibling containers, not localhost.
+      NEO4J_URI: bolt://neo4j:7687
+      POSTGRES_HOST: postgres
+      CHROMA_DIR: /data/chroma
+      DOCS_DIR: /app/docs
+    volumes:
+      - ./docs:/app/docs
+      - chroma-data:/data/chroma
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+
+  # Standalone ChromaDB server. The app also supports an embedded local
+  # Chroma directory (CHROMA_DIR); this service is provided for a networked
+  # deployment.
+  chroma:
+    image: chromadb/chroma:0.5.23
+    container_name: graphrag-chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma-server:/chroma/chroma
+
+  neo4j:
+    image: neo4j:5.26
+    container_name: graphrag-neo4j
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-please-change-me}
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:16
+    container_name: graphrag-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-graphrag}
+      POSTGRES_USER: ${POSTGRES_USER:-graphrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-please-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-graphrag} -d ${POSTGRES_DB:-graphrag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  chroma-data:
+  chroma-server:
+  neo4j-data:
+  postgres-data:
